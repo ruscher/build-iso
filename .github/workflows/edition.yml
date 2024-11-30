@@ -42,19 +42,18 @@ on:
           - biglinux
           - chililinux
           - manjaro
-          - talesam
-        default: "bigcommunity"
+        default: "chililinux"
       iso_profiles_repo:
         type: choice
         description: "Choice ISO profiles"
         required: true
         options:
-          - "https://github.com/communitybig/iso-profiles"
+          - "https://github.com/talesam/iso-profiles"
           - "https://github.com/biglinux/iso-profiles"
           - "https://github.com/chililinux/iso-profiles"
+          - "https://github.com/chililinux/manjaro-iso-profiles"
           - "https://gitlab.manjaro.org/profiles-and-settings/iso-profiles.git"
-          - "https://github.com/talesam/iso-profiles"
-        default: "https://github.com/communitybig/iso-profiles"
+        default: "https://github.com/chililinux/iso-profiles"
       scope:
         type: choice
         description: "Build scope"
@@ -126,11 +125,13 @@ on:
 
 env:
   TELEGRAM_TOKEN: "${{ secrets.TOKEN_BOT }}"
+  #GITHUB_TOKEN: "${{ secrets.TOKEN_RELEASE }}"
+  GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
   CHAT_ID: "${{ secrets.CHAT_ID }}"
   started_by_user: "${{ github.actor }}"
   triggered_by_user: "${{ github.triggering_actor }}"
   repo_path: "${{ secrets.PKGBUILD_DIR }}"
-  iso_distroname: "${{ github.event.client_payload.distroname || inputs.distroname || 'bigcommunity' }}"
+  iso_distroname: "${{ github.event.client_payload.distroname || inputs.distroname || 'chililinux' }}"
   iso_manjaro_branch: "${{ github.event.client_payload.manjaro_branch || inputs.manjaro_branch}}"
   iso_biglinux_branch: "${{ github.event.client_payload.biglinux_branch || inputs.biglinux_branch}}"
   iso_community_branch: "${{ github.event.client_payload.community_branch || inputs.community_branch}}"
@@ -139,7 +140,7 @@ env:
   iso_release_tag: "${{ github.event.client_payload.release_tag || inputs.release_tag }}"
   iso_kernel: "${{ github.event.client_payload.kernel || inputs.kernel }}"
   iso_basename: "${iso_distroname}_${iso_branch}_${iso_edition}_${iso_release_tag}"
-  iso-profile: "${{ github.event.client_payload.iso_profiles_repo || inputs.iso_profiles_repo }}"
+
 jobs:
   setup:
     runs-on: ubuntu-latest
@@ -151,15 +152,9 @@ jobs:
           START_TIME=$(date +"%Y-%m-%d %H:%M:%S")  # Hora completa
           START_TIMESTAMP=$(date +%s)  # Timestamp em segundos
           echo "Início do Workflow: $START_TIME"
-          echo "START_TIME=$START_TIME" >> $GITHUB_ENV
-          echo "START_TIMESTAMP=$START_TIMESTAMP" >> $GITHUB_ENV
-
-      - name: Cria um arquivo de variaveis para compartilhar entre jobs
-        shell: bash
-        run: |
-          #Cria um arquivo de variaveis para compartilhar entre jobs
-          #echo "$START_TIME" > shared_file.txt
-          echo "START_TIME='$START_TIME'" >> shared_file.txt
+          echo "START_TIME=$START_TIME"             >> $GITHUB_ENV
+          echo "START_TIMESTAMP=$START_TIMESTAMP"   >> $GITHUB_ENV
+          echo "START_TIME='$START_TIME'"           >> shared_file.txt
           echo "START_TIMESTAMP='$START_TIMESTAMP'" >> shared_file.txt
 
       - name: Install dependencies on HOST
@@ -179,12 +174,15 @@ jobs:
       - name: Enviar notificação para o Telegram
         shell: bash
         run: |
+          #Enviar notificação para o Telegram
           case "${iso_distroname}" in
           bigcommunity) iso_branch="${iso_community_branch}";;
           biglinux) iso_branch="${iso_biglinux_branch}";;
           chililinux) iso_branch="${iso_chililinux_branch}";;
           manjaro) iso_branch="${iso_manjaro_branch}";;
           esac
+          echo "ISO_BRANCH='$iso_branch'" >> GITHUB_ENV
+          echo "ISO_BRANCH='$iso_branch'" >> shared_file.txt
           link_action=https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
 
           MESSAGE="🚀 <b>[step 1/2] build-iso - INICIANDO WORKFLOW</b>
@@ -194,7 +192,7 @@ jobs:
           <b>Iniciado/Triggered:</b> <code>${started_by_user}/${triggered_by_user}</code>
           <b>Inicio:</b> <code>${{ env.START_TIME }}</code>
           <b>Distroname:</b> <code>${iso_distroname}</code>
-          <b>Iso-profile:</b> <code>${{ github.event.client_payload.iso_profiles_repo || inputs.iso_profiles_repo }}</code>
+          <b>Iso Profile:</b> <code>${{ github.event.client_payload.iso_profiles_repo || inputs.iso_profiles_repo }}</code>
           <b>Edition:</b> <code>${iso_edition}</code>
           <b>Manjaro Branch:</b> <code>${iso_manjaro_branch}</code>
           <b>BigLinux Branch:</b> <code>${iso_biglinux_branch}</code>
@@ -210,6 +208,14 @@ jobs:
             -d chat_id="${CHAT_ID}" \
             -d text="${MESSAGE}" \
             -d parse_mode="HTML"
+
+      #      - name: Cria um arquivo de variaveis para compartilhar entre jobs
+      #        shell: bash
+      #        run: |
+      #          #Cria um arquivo de variaveis para compartilhar entre jobs
+      #          echo "START_TIME='$START_TIME'"           >> shared_file.txt
+      #          echo "START_TIMESTAMP='$START_TIMESTAMP'" >> shared_file.txt
+      #          echo "ISO_BRANCH='$iso_branch'"           >> shared_file.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -237,6 +243,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: [setup] # Espera o job "setup" terminar
     container:
+      #image: talesam/community-build:1.4.1
+      #image: talesam/community-build:1.3
       image: talesam/community-build:1.5.1
       options: --privileged
       volumes:
@@ -261,6 +269,7 @@ jobs:
           # Definir a variável START_TIME para outros jobs
           echo "START_TIME=$START_TIME"           >> $GITHUB_ENV
           echo "START_TIMESTAMP=$START_TIMESTAMP" >> $GITHUB_ENV
+          echo "ISO_BRANCH=$ISO_BRANCH"           >> $GITHUB_ENV
 
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -272,10 +281,31 @@ jobs:
         shell: bash
         run: |
           # Install some necessary packages
-          sudo pacman -Sy inetutils tree --needed --quiet --noconfirm >/dev/null
+          sudo pacman -Sy p7zip inetutils tree --needed --quiet --noconfirm >/dev/null
 
       - name: Set up aliases
         run: |
+          cat << 'EOF' > $HOME/.bash_profile
+          #
+          # ~/.bash_profile
+          #
+
+          if command -v hostnamectl; then
+            hostnamectl
+          fi
+          timenow="$(date +'%H:%M')"
+          load="$(awk '{print $1 ", " $2 ", " $3}' /proc/loadavg)"
+
+          printf '\e[0;35m%s\n\e[0m' "$logo"
+          printf 'Welcome back! The time now is %s UTC\n' "$timenow"
+          printf 'Server load    :  %s\n' "$load"
+          printf 'Server Uptime  : %s\n' "$(uptime)"
+          printf 'User           :  %s %s\n' "$(whoami)" "$(id)"
+          printf '\n'
+
+          [[ -f ~/.bashrc ]] && . ~/.bashrc
+          EOF
+
           echo "alias ll='ls -lah --color=auto'" >> $HOME/.bashrc
           echo "alias gs='git status'"           >> $HOME/.bashrc
           # Carrega o .bashrc para aplicar os aliases na sessão atual
@@ -319,7 +349,7 @@ jobs:
         id: build
         with:
           # Parâmetros básicos da ISO
-          distroname: ${{ github.event.client_payload.distroname || inputs.distroname || 'bigcommunity' }}
+          distroname: ${{ github.event.client_payload.distroname || inputs.distroname || 'chililinux' }}
           edition: ${{ github.event.client_payload.edition || inputs.edition}}
           #release_tag: ${{ github.event.client_payload.release_tag || inputs.release_tag }}
           release_tag: ${{ env.RELEASE_TAG }}
@@ -348,8 +378,20 @@ jobs:
           start_timestamp: "${{ env.START_TIMESTAMP }}"
 
       - name: Set ISO path
+        shell: bash
         run: |
           # Set ISO path
+
+          #temporario - para testes
+          #WORK_PATH='/__w/build-iso/build-iso'
+          #ISO_BASENAME="${iso_distroname}_${ISO_BRANCH^^}_${iso_edition}_${iso_release_tag}.iso"
+          #{
+          #  echo "WORK_PATH=$WORK_PATH"
+          #  echo "ISO_BASENAME=$ISO_BASENAME"
+          #} >> $GITHUB_ENV
+          #echo "ISO_PATH=${WORK_PATH}/${ISO_BASENAME}" >> $GITHUB_ENV
+          #touch "${WORK_PATH}/${ISO_BASENAME}"
+          #temporario - para testes
           echo "ISO_PATH=${{ env.WORK_PATH }}/${{ env.ISO_BASENAME }}" >> $GITHUB_ENV
 
       - name: Calculate ISO MD5 Hash
@@ -365,41 +407,46 @@ jobs:
             exit 1
           fi
 
-      - name: Prepare ISO for release
+      - name: Prepare ISO for release (7z)
         id: prepare-iso
         shell: bash
         run: |
+          #Prepare ISO for release (7z)
+          source /tmp/send_telegram_message.sh
+          replicate '='
           ls -lah
           release=$(basename "${ISO_PATH}" .iso)
-          zip -j -0 -s 2000m ${release}.zip "${ISO_PATH}"
+          7z a -v2000m ${release}.7z "${ISO_PATH}" # Compacta e divide em partes de 2000 MB
           echo "release_name=${release}" >> "$GITHUB_OUTPUT"
           echo "ISO prepared for release"
-
-          # Imprimir a variável ISO_PATH para depuração
-          echo "ISO_PATH (iso) : ${ISO_PATH}"
-          echo "ISO_PATH (md5) : ${ISO_PATH}.md5"
-          echo "ISO_PATH (pkgs): ${ISO_PATH}.pkgs"
-          echo "release        : ${release}"
-          echo "release_name   : ${release_name}"
+          replicate '='
+          ls -lah
+          replicate '='
+          # Debug
+          echo "ISO_PATH (original): ${ISO_PATH}"
+          echo "ISO_PATH (md5)     : ${ISO_PATH}.md5"
+          echo "ISO_PATH (pkgs)    : ${ISO_PATH}.pkgs"
+          echo "release            : ${release}"
+          echo "release_name       : ${release_name}"
+          replicate '='
 
       - name: Upload ISO as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.prepare-iso.outputs.release_name }}
+          #name: ${{ steps.prepare-iso.outputs.release_name }}
+          name: Full_ISO_${{ steps.prepare-iso.outputs.release_name }}
           path: |
             ${{ env.ISO_PATH }}
             ${{ env.ISO_PATH }}.md5
             ${{ env.ISO_PATH }}.pkgs
 
       - name: Create Release
-        if: ${{ (github.event.client_payload.manjaro_branch || inputs.manjaro_branch) == 'stable' && (github.event.client_payload.community_branch || inputs.community_branch) == 'stable' && (github.event.client_payload.biglinux_branch || inputs.biglinux_branch) == 'stable' && (github.event.client_payload.chililinux_branch || inputs.chililinux_branch) == 'stable' }}
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            ${{ env.ISO_PATH }}
             ${{ env.ISO_PATH }}.md5
             ${{ env.ISO_PATH }}.pkgs
-            ${{ steps.prepare-iso.outputs.release_name }}.z*
+            ${{ steps.prepare-iso.outputs.release_name }}.7z.*
           tag_name: ${{ github.event.client_payload.release_tag || inputs.release_tag }}
           name: ${{ steps.prepare-iso.outputs.release_name }}
           generate_release_notes: true
@@ -456,22 +503,60 @@ jobs:
       - name: Capturar hora de término e calcular duração
         shell: bash
         run: |
-          # Function to send Telegram message
-          # Define a hora de início e término
-          # Acessa os valores passados como output do step anterior
-          #START_TIME="${{ needs.setup.outputs.start_time }}"
-          #START_TIMESTAMP="${{ needs.setup.outputs.start_timestamp }}"
-          START_TIME="${{ env.START_TIME }}"
-          START_TIMESTAMP="${{ env.START_TIMESTAMP }}"
+          #Capturar hora de término e calcular duração
+          sh_calc_duration_via_normal() {
+            # Configurações
+            START_TIME="${{ env.START_TIME }}"
+            START_TIMESTAMP="${{ env.START_TIMESTAMP }}"
+            END_TIME=$(date +"%Y-%m-%d %H:%M:%S")
+            END_TIMESTAMP=$(date +%s)
+            # Calcula a duração em segundos, horas, minutos e segundos
+            duration=$((END_TIMESTAMP - START_TIMESTAMP))
+            hours=$((duration / 3600))
+            minutes=$(( (duration % 3600) / 60 ))
+            seconds=$((duration % 60))
+          }
 
-          END_TIME=$(date +"%Y-%m-%d %H:%M:%S")
-          END_TIMESTAMP=$(date +%s)
+          sh_calc_duration_via_api() {
+            # Endpoint da API
+            API_URL="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs"
 
-          # Calcula a duração em segundos, horas, minutos e segundos
-          duration=$((END_TIMESTAMP - START_TIMESTAMP))
-          hours=$((duration / 3600))
-          minutes=$(( (duration % 3600) / 60 ))
-          seconds=$((duration % 60))
+            # Fazendo a requisição para obter o último workflow run
+            response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+                              -H "Accept: application/vnd.github+json" \
+                              "$API_URL")
+
+            # Extraindo os horários (created_at e updated_at) do último workflow
+            created_at=$(echo "$response" | jq -r '.workflow_runs[0].created_at')
+            updated_at=$(echo "$response" | jq -r '.workflow_runs[0].updated_at')
+
+            # Verificando se os valores foram obtidos
+            if [[ -z "$created_at" || -z "$updated_at" ]]; then
+              echo "Erro: Não foi possível obter os dados do workflow."
+              exit 1
+            fi
+
+            # Convertendo horários para timestamps
+            start_ts=$(date -d "$created_at" +%s)
+            end_ts=$(date -d "$updated_at" +%s)
+
+            START_TIME="$created_at"
+            END_TIME="$updated_at"
+
+            # Calculando a duração em segundos
+            duration=$((end_ts - start_ts))
+
+            # Convertendo para formato legível (HH:MM:SS)
+            hours=$((duration / 3600))
+            minutes=$(((duration % 3600) / 60))
+            seconds=$((duration % 60))
+
+            # Exibindo o tempo total
+            printf "Tempo total da execução: %02d:%02d:%02d\n" "$hours" "$minutes" "$seconds"
+          }
+
+          sh_calc_duration_via_normal
+          #sh_calc_duration_via_api
 
           # Obtém o ID do run e o URL do artefato a partir das variáveis de ambiente
           RUN_ID="${{ github.run_id }}"
