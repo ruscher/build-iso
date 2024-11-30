@@ -1,0 +1,408 @@
+# -*- coding: utf-8 -*-
+#
+#  action.yml
+#  created: ter 24 set 2024 03:23:36 -04
+#  altered: qua 20 nov 2024 10:00:22 -04
+#
+#  Copyright (c) 2024-2024, Vilmar Catafesta <vcatafesta@gmail.com>
+#  Copyright (c) 2024-2024, Tales A. Mendonça <communitybig@gmail.com>
+#  All rights reserved.
+#
+#  Redistribution and use in source and binary forms, with or without
+#  modification, are permitted provided that the following conditions
+#  are met:
+#  1. Redistributions of source code must retain the above copyright
+#     notice, this list of conditions and the following disclaimer.
+#  2. Redistributions in binary form must reproduce the above copyright
+#     notice, this list of conditions and the following disclaimer in the
+#     documentation and/or other materials provided with the distribution.
+#
+#  THIS SOFTWARE IS PROVIDED BY THE AUTHOR AS IS'' AND ANY EXPRESS OR
+#  IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+#  OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+#  IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
+#  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+#  NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+#  DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+#  THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+#  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+#  THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+##############################################################################
+name: "Build ISO"
+description: "Builds a Custom ISO image"
+
+inputs:
+  distroname:
+    type: choice
+    description: "Distroname for the ISO"
+    required: true
+    options:
+      - bigcommunity
+      - biglinux
+      - chililinux
+      - manjaro
+      - talesam
+    default: "bigcommunity"
+  iso_profiles_repo:
+    type: choice
+    description: "Choice ISO profiles"
+    required: true
+    options:
+      - "https://github.com/communitybig/iso-profiles"
+      - "https://github.com/biglinux/iso-profiles"
+      - "https://github.com/chililinux/iso-profiles"
+      - "https://gitlab.manjaro.org/profiles-and-settings/iso-profiles.git"
+      - "https://github.com/talesam/iso-profiles"
+    default: "https://github.com/communitybig/iso-profiles"
+  iso_profiles_branch:
+    description: "Branch of the ISO profiles repository (optional)"
+    required: false
+  edition:
+    description: "Name of the ISO profile to build"
+    required: true
+  manjaro_branch:
+    description: "Manjaro branch (stable, testing, unstable)"
+    required: true
+    default: stable
+  community_branch:
+    description: "Community branch (stable, testing)"
+    required: false
+  biglinux_branch:
+    description: "BigLinux branch (stable, testing)"
+    required: true
+  chililinux_branch:
+    description: "ChiliLinux branch (stable, testing)"
+    required: false
+  scope:
+    description: "Build scope (full or minimal)"
+    required: false
+    default: "full"
+  kernel:
+    description: "Kernel version (latest, lts, oldLts, xanmod)"
+    required: true
+  release_tag:
+    description: "Release tag for the ISO"
+    required: true
+  tmate:
+    description: "Enable debugging with tmate"
+    required: false
+    default: false
+  office-chooser:
+    description: "Include office suite"
+    required: false
+    default: "false"
+  repo_unstable:
+    description: "URL for unstable repository"
+    required: false
+  mirror_dev:
+    description: "URL for development mirror"
+    required: false
+  mirror_unstable:
+    description: "URL for unstable mirror"
+    required: false
+  github_token:
+    description: "GitHub token for authentication"
+    required: true
+  start_time:
+    description: "Hora de início do workflow"
+    required: false
+  start_timestamp:
+    description: "Timestamp de início do workflow"
+    required: false
+
+outputs:
+  iso_path:
+    description: "Path to the generated ISO file"
+    value: ${{ steps.build.outputs.iso_path }}
+  release_name:
+    description: "Name of the release"
+    value: ${{ steps.prepare-iso.outputs.release_name }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Definir a função send_telegram_message no script temporário
+      shell: bash
+      env:
+        TELEGRAM_TOKEN: "${{ inputs.telegram_token }}"
+        TELEGRAM_CHAT_ID: "${{ inputs.telegram_chat_id }}"
+      run: |
+        #Definir a função send_telegram_message no script temporário
+        cat << 'EOF' > /tmp/send_telegram_message.sh
+        export TERM=${TERM:-xterm}
+        export TERM=${TERM:-xterm-256color}
+
+        #Definindo variáveis de cores
+        export green="\033[01;32m"
+        export red="\033[01;31m"
+        export blue="\033[01;34m"
+        export cyan="\033[01;36m"
+        export pink="\033[01;35m"
+        export yellow="\033[01;33m"
+        export reset="\033[0m"
+
+        msg() {
+          local msg="$1"
+          msg="$(sed 's/<[^>]*>//g' <<< "$msg")" # Remove as tags HTML
+          echo -e "build-package=>${cyan}running: ${yellow}${msg}${reset}"
+        }
+
+        msg_info() {
+          local msg="$1"
+          msg="$(sed 's/<[^>]*>//g' <<< "$msg")" # Remove as tags HTML
+          echo -e "build-package=>${yellow}info   : ${cyan}${msg}${reset}"
+        }
+
+        msg_warning() {
+          local msg="$1"
+          msg="$(sed 's/<[^>]*>//g' <<< "$msg")" # Remove as tags HTML
+          echo -e "build-package=>${red}warning: ${orange}${msg}${reset}"
+        }
+
+        replicate() {
+          local char=${1:-'#'}
+          local nsize=${2:-$(tput cols)}
+          local line
+          #printf -v line "%*s" "$nsize" && echo "${line// /$char}"
+          #printf -v line "%*s" "$nsize" && echo -e "\033[31m${line// /$char}\033[0m"
+          printf -v line "%*s" "$nsize" && echo -e "${blue}${line// /$char}${reset}"
+        }
+        export -f replicate
+
+        send_telegram_message() {
+          local message="$1"
+          local parse_mode="$2"
+
+          # Define parse_mode como "MarkdownV2" se não for especificado
+          [[ -z $parse_mode ]] && parse_mode="HTML"
+
+          # Remove as tags HTML e exibe o resultado no terminal
+          echo -e "${red}$(sed 's/<[^>]*>//g' <<< "$message")${reset}"
+          # Envia a mensagem original com HTML para o Telegram
+          curl -s -X POST "https://api.telegram.org/bot${{ inputs.telegram_token }}/sendMessage" \
+            -d chat_id="${{ inputs.telegram_chat_id }}" \
+            -d text="$message" \
+            -d parse_mode="$parse_mode"
+        }
+        export -f send_telegram_message
+        EOF
+
+    - name: Display the current user in CONTAINER
+      shell: bash
+      run: |
+        #Display the current user in CONTAINER
+        source /tmp/send_telegram_message.sh
+        replicate '='
+        echo -e "${cyan}Current host is     : ${yellow}$(hostname)${reset}"
+        echo -e "${cyan}Current user is     : ${yellow}$(whoami)${reset}"
+        echo -e "${cyan}Current user ID is  : ${yellow}$(id -u)${reset}"
+        echo -e "${cyan}Current user details: ${yellow}$(id)${reset}"
+        replicate '='
+        echo 'df -hT || true'
+        df -hT || true
+        replicate '='
+        echo 'ls -la /mnt || true'
+        ls -la /mnt || true
+        replicate '='
+
+    - name: Setup pacman packages
+      shell: bash
+      run: |
+        #Setup build environment
+        #configure extra repos
+        if [[ "${{ inputs.distroname }}" == 'bigcommunity' ]]; then
+          {
+            echo "[community-extra]"
+            echo "SigLevel = PackageRequired"
+            echo "Server = https://repo.communitybig.org/extra/\$arch"
+            echo
+          } | sudo tee -a /etc/pacman.conf > /dev/null
+        fi
+
+        #configure chili repos
+        if [[ "${{ inputs.distroname }}" == 'chililinux' ]]; then
+          {
+            echo "[chili-stable]"
+            echo "SigLevel = Never"
+            echo "Server = https://repo.chililinux.com/stable/\$arch"
+            echo
+            echo "[chili-testing]"
+            echo "SigLevel = Never"
+            echo "Server = https://repo.chililinux.com/testing/\$arch"
+            echo
+            echo "[chili-extra]"
+            echo "SigLevel = Never"
+            echo "Server = https://repo.chililinux.com/extra/\$arch"
+            echo
+          } | sudo tee -a /etc/pacman.conf > /dev/null
+        fi
+
+        # update and install additional packages
+        sudo pacman -Sy --quiet --needed --noconfirm --overwrite \* \
+          base \
+          base-devel \
+          curl \
+          duf \
+          fakeroot \
+          git \
+          github-cli \
+          gnupg \
+          inetutils \
+          jq \
+          libarchive \
+          nano \
+          openssh \
+          openssl \
+          rsync \
+          tmate \
+          tree \
+          wget \
+          manjaro-chrootbuild \
+          manjaro-tools-iso-git \
+          manjaro-tools-yaml-git \
+          manjaro-tools-base-git \
+          mktorrent \
+          squashfs-tools \
+          archiso \
+          calamares \
+          calamares-tools \
+          mkinitcpio \
+          zip \
+          shfmt \
+          cdrkit \
+          ncurses > /dev/null
+
+    - name: Setup TMATE Session
+      uses: mxschmitt/action-tmate@v3
+      if: ${{ github.event.client_payload.tmate == true || inputs.tmate == true}}
+      with:
+        install-dependencies: false
+        detached: true
+
+    - name: Configure disable-fsync
+      shell: bash
+      run: |
+        # Configurar disable-fsync
+        DISABLE_FSYNC_URL="https://raw.githubusercontent.com/biglinux/disable-fsync/main/disable-fsync/usr/lib/disable-fsync.so"
+        DISABLE_FSYNC_FILE="/usr/lib/disable-fsync.so"
+        PRELOAD_FILE="/etc/ld.so.preload"
+
+        # Faz download do arquivo
+        sudo wget "$DISABLE_FSYNC_URL" -O "$DISABLE_FSYNC_FILE"
+        # Calcula o hash SHA256 do arquivo baixado
+        SHA256SUM=$(curl -s "$DISABLE_FSYNC_URL" | sha256sum | awk '{print $1}')
+        # Verifica o hash do arquivo
+        echo "${SHA256SUM} ${DISABLE_FSYNC_FILE}" | sha256sum --check || exit 1
+        # Adiciona o caminho do arquivo ao PRELOAD_FILE
+        sudo sh -c "echo '${DISABLE_FSYNC_FILE}' >> '${PRELOAD_FILE}'"
+        # Atualiza o cache de bibliotecas compartilhadas
+        sudo ldconfig
+
+    - name: Pull and setup keys
+      shell: bash
+      run: |
+        # Pull and setup keys
+
+        git clone https://github.com/biglinux/biglinux-key.git
+        sudo install -dm755 /etc/pacman.d/gnupg/
+        sudo install -m0644 biglinux-key/usr/share/pacman/keyrings/* /etc/pacman.d/gnupg/
+        sudo rm -r biglinux-key
+
+        if [[ "${{ inputs.distroname }}" == 'bigcommunity' ]]; then
+          git clone https://github.com/communitybig/community-keyring.git
+          sudo install -m0644 community-keyring/community.gpg /usr/share/pacman/keyrings/
+          sudo install -m0644 community-keyring/community-trusted /usr/share/pacman/keyrings/
+          sudo install -m0644 community-keyring/community-revoked /usr/share/pacman/keyrings/
+          sudo rm -r community-keyring
+        fi
+
+        if [[ "${{ inputs.distroname }}" == 'chililinux' ]]; then
+          git clone https://github.com/chililinux/chili-keyring.git
+          sudo install -m0644 chili-keyring/chili.gpg /usr/share/pacman/keyrings/
+          sudo install -m0644 chili-keyring/chili-trusted /usr/share/pacman/keyrings/
+          sudo install -m0644 chili-keyring/chili-revoked /usr/share/pacman/keyrings/
+          sudo rm -r chili-keyring
+        fi
+
+        # Initialize pacman keychain
+        #sudo pacman -S biglinux-keyring community-keyring chili-keyring
+        sudo pacman-key --init
+        sudo pacman-key --populate
+
+        # Update pacman databases
+        sudo pacman -Sy --quiet --noconfirm
+
+    - name: Adjustment of mkinitcpio hooks
+      shell: bash
+      run: |
+        # Adjust mkinitcpio hooks (if still necessary)
+        sudo sed -i -e 's/File/Path/' /usr/share/libalpm/hooks/*hook*
+
+    - name: Create mknod /dev/sr0
+      shell: bash
+      run: |
+        # Create with mknod '/dev/sr0'
+        sudo mknod /dev/sr0 b 11 0 || true
+        sudo chmod 660 /dev/sr0 || true
+        sudo chown root:root /dev/sr0 || true
+
+    - name: Declare environment variables
+      shell: bash
+      run: |
+        # Declare environment variables
+        DISTRONAME_ISOPROFILES="${{ inputs.distroname }}"
+        #REPO="${{ inputs.iso_profiles_repo }}"
+        #get_distroname_isoprofiles() {
+        #  # Extraindo a organização
+        #  if [[ $REPO =~ https?://[^/]+/([^/]+)/.* ]]; then
+        #    DISTRONAME_ISOPROFILES="${BASH_REMATCH[1]}"
+        #  else
+        #    DISTRONAME_ISOPROFILES="${{ inputs.distroname }}"
+        #  fi
+        #  echo "$DISTRONAME_ISOPROFILES"
+        #}
+        #DISTRONAME_ISOPROFILES="$(get_distroname_isoprofiles)"
+
+        {
+          echo "USERNAME=builduser"
+          echo "HOME_FOLDER=/home/builduser"
+          echo "REPO=${{ inputs.iso_profiles_repo }}"
+          echo "EDITION=${{ inputs.edition }}"
+          echo "WORK_PATH=/__w/build-iso/build-iso"
+          echo "WORK_PATH_ISO_PROFILES=/__w/build-iso/build-iso/iso-profiles"
+          echo "DISTRONAME=${{ inputs.distroname }}"
+          echo "DISTRONAME_ISOPROFILES=$DISTRONAME_ISOPROFILES"
+          echo "PROFILE_PATH=/__w/build-iso/build-iso/iso-profiles/${DISTRONAME_ISOPROFILES}"
+          echo "PROFILE_PATH_EDITION=/__w/build-iso/build-iso/iso-profiles/${DISTRONAME_ISOPROFILES}/${{ inputs.edition }}"
+          echo "PATH_MANJARO_ISO_PROFILES=/usr/share/manjaro-tools/iso-profiles"
+          echo "PATH_MANJARO_TOOLS=/usr/share/manjaro-tools"
+          echo "VAR_CACHE_MANJARO_TOOLS=/var/cache/manjaro-tools"
+          echo "VAR_CACHE_MANJARO_TOOLS_ISO=/var/cache/manjaro-tools/iso"
+          echo "DEBUG=${{ inputs.tmate }}"
+          echo "MANJAROBRANCH=${{ inputs.manjaro_branch }}"
+          echo "COMMUNITYBRANCH=${{ inputs.community_branch }}"
+          echo "BIGBRANCH=${{ inputs.biglinux_branch }}"
+          echo "CHILIBRANCH=${{ inputs.chililinux_branch }}"
+          echo "KERNEL=${{ inputs.kernel }}"
+          echo "RELEASE_TAG=${{ inputs.release_tag }}"
+          echo "SCOPE=${{ inputs.scope }}"
+          echo "OFFICE=${{ inputs.office-chooser }}"
+        } >> "$GITHUB_ENV"
+
+    - name: Build ISO Image ${{ github.event.client_payload.edition || inputs.edition }}
+      shell: bash
+      run: |
+        # Loading script and building ISO
+        if [[ ! -x "$WORK_PATH/usr/bin/mkiso-build" ]]; then
+          echo "ERROR(ACTION.YML/L316): Script $WORK_PATH/usr/bin/mkiso-build not found or size zero!"
+          exit 1
+        fi
+        pushd "$WORK_PATH" || true
+        #source "$WORK_PATH/usr/bin/mkiso-build"
+        #make_iso
+        ./usr/bin/mkiso-build --automatic
+
+    - name: Set ISO path
+      shell: bash
+      run: |
+        echo "ISO_PATH=$WORK_PATH/$ISO_BASENAME" >> $GITHUB_ENV

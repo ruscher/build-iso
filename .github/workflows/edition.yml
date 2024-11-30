@@ -1,0 +1,501 @@
+#  edition.yml
+#  Created: 2024/09/15 - 08:10
+#  Altered: qua 20 nov 2024 10:00:22 -04
+#
+#  Copyright (c) 2024-2024, Vilmar Catafesta <vcatafesta@gmail.com>
+#  All rights reserved.
+#
+#  Redistribution and use in source and binary forms, with or without
+#  modification, are permitted provided that the following conditions
+#  are met:
+#  1. Redistributions of source code must retain the above copyright
+#     notice, this list of conditions and the following disclaimer.
+#  2. Redistributions in binary form must reproduce the above copyright
+#     notice, this list of conditions and the following disclaimer in the
+#     documentation and/or other materials provided with the distribution.
+#
+#  THIS SOFTWARE IS PROVIDED BY THE AUTHOR AS IS'' AND ANY EXPRESS OR
+#  IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+#  OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+#  IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
+#  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+#  NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+#  DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+#  THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+#  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+#  THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+##############################################################################
+name: 💿 Build ISO
+
+on:
+  repository_dispatch:
+    types:
+      - "ISO-*"
+  workflow_dispatch:
+    inputs:
+      distroname:
+        type: choice
+        description: "Distroname for the ISO"
+        required: true
+        options:
+          - bigcommunity
+          - biglinux
+          - chililinux
+          - manjaro
+          - talesam
+        default: "bigcommunity"
+      iso_profiles_repo:
+        type: choice
+        description: "Choice ISO profiles"
+        required: true
+        options:
+          - "https://github.com/communitybig/iso-profiles"
+          - "https://github.com/biglinux/iso-profiles"
+          - "https://github.com/chililinux/iso-profiles"
+          - "https://gitlab.manjaro.org/profiles-and-settings/iso-profiles.git"
+          - "https://github.com/talesam/iso-profiles"
+        default: "https://github.com/communitybig/iso-profiles"
+      scope:
+        type: choice
+        description: "Build scope"
+        options:
+          - full
+          - minimal
+        default: "full"
+      #     office-chooser:
+      #       type: boolean
+      #       description: "Include office suite"
+      #       required: false
+      #       default: false
+      tmate:
+        type: boolean
+        description: "Enable debugging with tmate"
+        required: false
+        default: false
+      kernel:
+        type: choice
+        description: "Kernel version"
+        options:
+          - latest
+          - lts
+          - oldLts
+          - xanmod
+        default: lts
+      manjaro_branch:
+        type: choice
+        description: "Manjaro branch"
+        options:
+          - stable
+          - testing
+          - unstable
+        default: stable
+      community_branch:
+        type: choice
+        description: "Community branch"
+        options:
+          - stable
+          - testing
+        default: testing
+      biglinux_branch:
+        type: choice
+        description: "BigLinux branch"
+        options:
+          - stable
+          - testing
+        default: testing
+      chililinux_branch:
+        type: choice
+        description: "ChiliLinux branch"
+        options:
+          - stable
+          - testing
+        default: testing
+      edition:
+        type: choice
+        description: "Edition"
+        options:
+          - cinnamon
+          - cosmic
+          - deepin
+          - gnome
+          - i3
+          - kde
+          - xfce
+          - wmaker
+        default: xfce
+
+env:
+  TELEGRAM_TOKEN: "${{ secrets.TOKEN_BOT }}"
+  CHAT_ID: "${{ secrets.CHAT_ID }}"
+  started_by_user: "${{ github.actor }}"
+  triggered_by_user: "${{ github.triggering_actor }}"
+  repo_path: "${{ secrets.PKGBUILD_DIR }}"
+  iso_distroname: "${{ github.event.client_payload.distroname || inputs.distroname || 'bigcommunity' }}"
+  iso_manjaro_branch: "${{ github.event.client_payload.manjaro_branch || inputs.manjaro_branch}}"
+  iso_biglinux_branch: "${{ github.event.client_payload.biglinux_branch || inputs.biglinux_branch}}"
+  iso_community_branch: "${{ github.event.client_payload.community_branch || inputs.community_branch}}"
+  iso_chililinux_branch: "${{ github.event.client_payload.chililinux_branch || inputs.chililinux_branch}}"
+  iso_edition: "${{ github.event.client_payload.edition || inputs.edition}}"
+  iso_release_tag: "${{ github.event.client_payload.release_tag || inputs.release_tag }}"
+  iso_kernel: "${{ github.event.client_payload.kernel || inputs.kernel }}"
+  iso_basename: "${iso_distroname}_${iso_branch}_${iso_edition}_${iso_release_tag}"
+  iso-profile: "${{ github.event.client_payload.iso_profiles_repo || inputs.iso_profiles_repo }}"
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Capturar hora de início do workflow
+        id: start-time
+        shell: bash
+        run: |
+          START_TIME=$(date +"%Y-%m-%d %H:%M:%S")  # Hora completa
+          START_TIMESTAMP=$(date +%s)  # Timestamp em segundos
+          echo "Início do Workflow: $START_TIME"
+          echo "START_TIME=$START_TIME" >> $GITHUB_ENV
+          echo "START_TIMESTAMP=$START_TIMESTAMP" >> $GITHUB_ENV
+
+      - name: Cria um arquivo de variaveis para compartilhar entre jobs
+        shell: bash
+        run: |
+          #Cria um arquivo de variaveis para compartilhar entre jobs
+          #echo "$START_TIME" > shared_file.txt
+          echo "START_TIME='$START_TIME'" >> shared_file.txt
+          echo "START_TIMESTAMP='$START_TIMESTAMP'" >> shared_file.txt
+
+      - name: Install dependencies on HOST
+        shell: bash
+        run: |
+          #sudo apt-get update
+          sudo apt-get autoremove
+          sudo apt-get install -y inetutils-tools
+
+      - name: Set up volume directory on HOST
+        shell: bash
+        run: |
+          sudo mkdir -p /mnt/var_lib_manjaro_tools_buildiso
+          sudo mkdir -p /mnt/var_cache_manjaro_tools_iso
+          sudo mkdir -p /mnt/lfs
+
+      - name: Enviar notificação para o Telegram
+        shell: bash
+        run: |
+          case "${iso_distroname}" in
+          bigcommunity) iso_branch="${iso_community_branch}";;
+          biglinux) iso_branch="${iso_biglinux_branch}";;
+          chililinux) iso_branch="${iso_chililinux_branch}";;
+          manjaro) iso_branch="${iso_manjaro_branch}";;
+          esac
+          link_action=https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+
+          MESSAGE="🚀 <b>[step 1/2] build-iso - INICIANDO WORKFLOW</b>
+          <b>Job:</b> <code>#${GITHUB_RUN_NUMBER}</code>
+          <b>Job URL:</b> <a href='https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}'>${link_action}</a>
+          <b>Workflow:</b> <code>build-iso/edition.yml</code>
+          <b>Iniciado/Triggered:</b> <code>${started_by_user}/${triggered_by_user}</code>
+          <b>Inicio:</b> <code>${{ env.START_TIME }}</code>
+          <b>Distroname:</b> <code>${iso_distroname}</code>
+          <b>Iso-profile:</b> <code>${{ github.event.client_payload.iso_profiles_repo || inputs.iso_profiles_repo }}</code>
+          <b>Edition:</b> <code>${iso_edition}</code>
+          <b>Manjaro Branch:</b> <code>${iso_manjaro_branch}</code>
+          <b>BigLinux Branch:</b> <code>${iso_biglinux_branch}</code>
+          <b>BigCommunity Branch:</b> <code>${iso_community_branch}</code>
+          <b>ChiliLinux Branch:</b> <code>${iso_chililinux_branch}</code>
+          <b>Release:</b> <code>${iso_release_tag}</code>
+          <b>Kernel:</b> <code>${iso_kernel}</code>
+          <b>ISO Name:</b> <code>${iso_distroname}_${iso_branch^^}_${iso_edition}_${iso_release_tag}</code>"
+          # Remove as tags HTML e exibe o resultado no terminal
+          echo -e "${green}$(sed 's/<[^>]*>//g' <<< "$MESSAGE")${reset}"
+          # Envia a mensagem original com HTML para o Telegram
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
+            -d chat_id="${CHAT_ID}" \
+            -d text="${MESSAGE}" \
+            -d parse_mode="HTML"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shared-file
+          path: shared_file.txt
+
+      - name: Display the current user in host
+        run: |
+          # Display the current user in host
+          echo "#########################################"
+          echo "Current host is: $(hostname)"
+          echo "Current user is: $(whoami)"
+          echo "Current user ID is: $(id -u)"
+          echo "Current user details:"
+          id
+          echo "#########################################"
+          df -hT
+          echo "#########################################"
+          ls -lah --color=auto /mnt
+          echo "#########################################"
+
+  build:
+    name: Build ISO ${{ github.event.client_payload.distroname || inputs.distroname }} ${{ github.event.client_payload.edition || inputs.edition }}
+    runs-on: ubuntu-latest
+    needs: [setup] # Espera o job "setup" terminar
+    container:
+      image: talesam/community-build:1.5.1
+      options: --privileged
+      volumes:
+        - /mnt/var_lib_manjaro_tools_buildiso:/var/lib/manjaro-tools/buildiso
+        - /mnt/var_cache_manjaro_tools_iso:/var/cache/manjaro-tools/iso
+        - /mnt/lfs:/mnt/lfs
+
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: shared-file
+
+      - name: Exibir conteúdo do arquivo e carregar variáveis
+        shell: bash
+        run: |
+          #Exibir conteúdo do arquivo e carregar variáveis
+          cat shared_file.txt
+          # Atribuir o conteúdo do arquivo à variável START_TIME
+          #START_TIME="$(<shared_file.txt)"
+          source shared_file.txt
+          # Definir a variável START_TIME para outros jobs
+          echo "START_TIME=$START_TIME"           >> $GITHUB_ENV
+          echo "START_TIMESTAMP=$START_TIMESTAMP" >> $GITHUB_ENV
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          #fetch-depth: 0    # All commit history is downloaded
+          fetch-depth: 1 # Only the most recent commit of the branch will be downloaded
+
+      - name: Install some necessary packages
+        shell: bash
+        run: |
+          # Install some necessary packages
+          sudo pacman -Sy inetutils tree --needed --quiet --noconfirm >/dev/null
+
+      - name: Set up aliases
+        run: |
+          echo "alias ll='ls -lah --color=auto'" >> $HOME/.bashrc
+          echo "alias gs='git status'"           >> $HOME/.bashrc
+          # Carrega o .bashrc para aplicar os aliases na sessão atual
+          source $HOME/.bashrc
+
+      - name: Initial Debug
+        run: |
+          echo "Workflow started"
+      #          echo "Event Name: ${{ github.event_name }}"
+      #          echo "Event Action: ${{ github.event.action }}"
+      #          echo "Edition: ${{ github.event.client_payload.edition || inputs.edition }}"
+      #          echo "Tmate from payload: ${{ github.event.client_payload.tmate }}"
+      #          echo "Full github event: ${{ toJson(github.event) }}"
+
+      - name: Display the current user in CONTAINER
+        shell: bash
+        run: |
+          # Display the current user in CONTAINER
+          echo "#########################################"
+          echo "Current host is: $(hostname)"
+          echo "Current user is: $(whoami)"
+          echo "Current user ID is: $(id -u)"
+          echo "Current user details:"
+          id
+          echo "#########################################"
+          df -hT
+          echo "#########################################"
+          ls -lah --color=auto /mnt
+          echo "#########################################"
+          tree -d /mnt
+          echo "#########################################"
+
+      - name: Set release tag manually
+        id: date
+        run: |
+          # Set release tag manually
+          echo "RELEASE_TAG=$(date '+%Y-%m-%d_%H-%M')" >> "$GITHUB_ENV"
+
+      - name: Build ISO
+        uses: ./
+        id: build
+        with:
+          # Parâmetros básicos da ISO
+          distroname: ${{ github.event.client_payload.distroname || inputs.distroname || 'bigcommunity' }}
+          edition: ${{ github.event.client_payload.edition || inputs.edition}}
+          #release_tag: ${{ github.event.client_payload.release_tag || inputs.release_tag }}
+          release_tag: ${{ env.RELEASE_TAG }}
+          kernel: ${{ github.event.client_payload.kernel || inputs.kernel }}
+          scope: ${{ github.event.client_payload.scope || inputs.scope }}
+          office-chooser: ${{ github.event.client_payload.office-chooser || inputs.office-chooser }}
+
+          # Parâmetros de branches
+          manjaro_branch: ${{ github.event.client_payload.manjaro_branch || inputs.manjaro_branch }}
+          community_branch: ${{ github.event.client_payload.community_branch || inputs.community_branch }}
+          biglinux_branch: ${{ github.event.client_payload.biglinux_branch || inputs.biglinux_branch }}
+          chililinux_branch: ${{ github.event.client_payload.chililinux_branch || inputs.chililinux_branch }}
+
+          # Depuração
+          tmate: ${{ github.event.client_payload.tmate || inputs.tmate != false && inputs.tmate }}
+
+          # Tokens e segredos
+          github_token: ${{ secrets.TOKEN_RELEASE }}
+
+          # Parâmetros adicionais (se necessário)
+          iso_profiles_repo: ${{ github.event.client_payload.iso_profiles_repo || inputs.iso_profiles_repo }}
+          # iso_profiles_branch: ${{ github.event.client_payload.iso_profiles_branch || inputs.iso_profiles_branch }}
+
+          # Passando o START_TIME para action.yml
+          start_time: "${{ env.START_TIME }}"
+          start_timestamp: "${{ env.START_TIMESTAMP }}"
+
+      - name: Set ISO path
+        run: |
+          # Set ISO path
+          echo "ISO_PATH=${{ env.WORK_PATH }}/${{ env.ISO_BASENAME }}" >> $GITHUB_ENV
+
+      - name: Calculate ISO MD5 Hash
+        shell: bash
+        run: |
+          echo "Calculating MD5 hash for ISO file ${ISO_PATH}"
+          if [[ -f "${ISO_PATH}" ]]; then
+            md5sum "${ISO_PATH}" > "${ISO_PATH}.md5"
+            echo "MD5 hash calculated and saved:"
+            cat "${ISO_PATH}".md5
+          else
+            echo "Error: ISO file not found at ${ISO_PATH}"
+            exit 1
+          fi
+
+      - name: Prepare ISO for release
+        id: prepare-iso
+        shell: bash
+        run: |
+          ls -lah
+          release=$(basename "${ISO_PATH}" .iso)
+          zip -j -0 -s 2000m ${release}.zip "${ISO_PATH}"
+          echo "release_name=${release}" >> "$GITHUB_OUTPUT"
+          echo "ISO prepared for release"
+
+          # Imprimir a variável ISO_PATH para depuração
+          echo "ISO_PATH (iso) : ${ISO_PATH}"
+          echo "ISO_PATH (md5) : ${ISO_PATH}.md5"
+          echo "ISO_PATH (pkgs): ${ISO_PATH}.pkgs"
+          echo "release        : ${release}"
+          echo "release_name   : ${release_name}"
+
+      - name: Upload ISO as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.prepare-iso.outputs.release_name }}
+          path: |
+            ${{ env.ISO_PATH }}
+            ${{ env.ISO_PATH }}.md5
+            ${{ env.ISO_PATH }}.pkgs
+
+      - name: Create Release
+        if: ${{ (github.event.client_payload.manjaro_branch || inputs.manjaro_branch) == 'stable' && (github.event.client_payload.community_branch || inputs.community_branch) == 'stable' && (github.event.client_payload.biglinux_branch || inputs.biglinux_branch) == 'stable' && (github.event.client_payload.chililinux_branch || inputs.chililinux_branch) == 'stable' }}
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            ${{ env.ISO_PATH }}
+            ${{ env.ISO_PATH }}.md5
+            ${{ env.ISO_PATH }}.pkgs
+            ${{ steps.prepare-iso.outputs.release_name }}.z*
+          tag_name: ${{ github.event.client_payload.release_tag || inputs.release_tag }}
+          name: ${{ steps.prepare-iso.outputs.release_name }}
+          generate_release_notes: true
+
+      - name: Get Artifact URL
+        id: get-artifact-url
+        env:
+          GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+          #FILE_NAME: "${ISO_BASENAME%.iso}"
+          FILE_NAME: "${{ steps.prepare-iso.outputs.release_name }}"
+          RUN_ID: "${{ github.run_id }}"
+          REPO: "${{ github.repository }}"
+        run: |
+          artifacts=$(gh api \
+            -H "Accept: application/vnd.github+json"\
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+             /repos/$REPO/actions/runs/$RUN_ID/artifacts)
+
+            echo "$artifacts" | jq .
+
+            artifact_id=$(echo "$artifacts" | jq -r --arg file_name "$FILE_NAME" '.artifacts[] | select(.name==$file_name) | .id')
+            echo "artifact_id=$artifact_id" >> $GITHUB_ENV
+            echo "Artifact ID: $artifact_id"
+
+            artifact_size_in_bytes=$(echo "$artifacts" | jq -r --arg file_name "$FILE_NAME" '.artifacts[] | select(.name==$file_name) | .size_in_bytes')
+            echo "artifact_size_in_bytes=$artifact_size_in_bytes" >> $GITHUB_ENV
+            echo "Artifact SiZE: $artifact_size_in_bytes"
+
+            artifact_url=https://github.com/$REPO/actions/runs/$RUN_ID/artifacts/$artifact_id
+            echo "artifact_url=$artifact_url" >> $GITHUB_ENV
+            echo "Artifact URL: $artifact_url"
+
+      - name: Telegram Alert Fail
+        if: failure()
+        shell: bash
+        run: |
+          #Telegram Alert Fail - Send a Telegram alert if the build fails
+          link_action=https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          MESSAGE="🚨 <b>FALHA ao criar ISO:</b>
+          <b>Job:</b> <code>#${GITHUB_RUN_NUMBER}</code>
+          <b>Iso:</b> <code>${{ github.event.action }}</code>
+          <b>URL erro:</b> <a href='https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}'>${link_action}</a>"
+
+          # Remove as tags HTML e exibe o resultado no terminal
+          echo -e "${green}$(sed 's/<[^>]*>//g' <<< "$MESSAGE")${reset}"
+
+          # Envia a mensagem para o Telegram com formatação HTML
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
+            -d chat_id="${CHAT_ID}" \
+            -d text="${MESSAGE}" \
+            -d parse_mode="HTML"
+
+      - name: Capturar hora de término e calcular duração
+        shell: bash
+        run: |
+          # Function to send Telegram message
+          # Define a hora de início e término
+          # Acessa os valores passados como output do step anterior
+          #START_TIME="${{ needs.setup.outputs.start_time }}"
+          #START_TIMESTAMP="${{ needs.setup.outputs.start_timestamp }}"
+          START_TIME="${{ env.START_TIME }}"
+          START_TIMESTAMP="${{ env.START_TIMESTAMP }}"
+
+          END_TIME=$(date +"%Y-%m-%d %H:%M:%S")
+          END_TIMESTAMP=$(date +%s)
+
+          # Calcula a duração em segundos, horas, minutos e segundos
+          duration=$((END_TIMESTAMP - START_TIMESTAMP))
+          hours=$((duration / 3600))
+          minutes=$(( (duration % 3600) / 60 ))
+          seconds=$((duration % 60))
+
+          # Obtém o ID do run e o URL do artefato a partir das variáveis de ambiente
+          RUN_ID="${{ github.run_id }}"
+          link_action="${{ env.artifact_url }}"
+          file_name="${{ steps.prepare-iso.outputs.release_name }}"
+
+          # Converte o tamanho do artefato para um formato legível
+          iso_size=$(numfmt --to=iec --suffix=B "${artifact_size_in_bytes}")
+
+          # Prepara a mensagem
+          MESSAGE="⏳ <b>[step 2/2] Job <code>#${GITHUB_RUN_NUMBER}</code> finalizado em:</b> <code>${hours}h ${minutes}m ${seconds}s</code>
+          <b>Job:</b> <code>#${GITHUB_RUN_NUMBER}</code>
+          <b>Workflow:</b> <code>build-iso/edition.yml</code>
+          <b>Inicio:</b> <code>${START_TIME}</code>
+          <b>Fim:</b> <code>${END_TIME}</code>
+          <b>Nome ISO:</b> <code>${ISO_BASENAME}</code>
+          <b>Tam ISO:</b> <code>${iso_size}</code>
+          <b>Download:</b> <a href='${{ env.artifact_url }}'>${file_name}.zip</a>"
+
+          # Remove as tags HTML e exibe o resultado no terminal
+          echo -e "${green}$(sed 's/<[^>]*>//g' <<< "$MESSAGE")${reset}"
+
+          # Envia a mensagem para o Telegram com formatação HTML
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
+            -d chat_id="${CHAT_ID}" \
+            -d text="${MESSAGE}" \
+            -d parse_mode="HTML"
