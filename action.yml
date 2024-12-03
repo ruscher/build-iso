@@ -240,24 +240,6 @@ runs:
 
         # update and install additional packages
         sudo pacman -Sy --quiet --needed --noconfirm --overwrite \* \
-          base \
-          base-devel \
-          curl \
-          duf \
-          fakeroot \
-          git \
-          github-cli \
-          gnupg \
-          inetutils \
-          jq \
-          libarchive \
-          nano \
-          openssh \
-          openssl \
-          rsync \
-          tmate \
-          tree \
-          wget \
           manjaro-chrootbuild \
           manjaro-tools-iso-git \
           manjaro-tools-yaml-git \
@@ -268,7 +250,6 @@ runs:
           calamares \
           calamares-tools \
           mkinitcpio \
-          zip \
           shfmt \
           cdrkit \
           ncurses > /dev/null
