@@ -351,22 +351,22 @@ runs:
       shell: bash
       run: |
         # Declare environment variables
-        #DISTRONAME_ISOPROFILES="${{ inputs.distroname }}"
-        ISO_PROFILES_REPO="${{ inputs.iso_profiles_repo }}"
-        get_distroname_isoprofiles() {
-          # Extraindo a organização
-          if [[ $ISO_PROFILES_REPO ==  'https://gitlab.manjaro.org/profiles-and-settings/iso-profiles.git' ]]; then
-            DISTRONAME_ISOPROFILES="${{ inputs.distroname }}"
-          else
-            if [[ $ISO_PROFILES_REPO =~ https?://[^/]+/([^/]+)/.* ]]; then
-              DISTRONAME_ISOPROFILES="${BASH_REMATCH[1]}"
-            else
-              DISTRONAME_ISOPROFILES="${{ inputs.distroname }}"
-            fi
-          fi
-          echo "$DISTRONAME_ISOPROFILES"
-        }
-        DISTRONAME_ISOPROFILES="$(get_distroname_isoprofiles)"
+        DISTRONAME_ISOPROFILES="${{ inputs.distroname }}"
+        # ISO_PROFILES_REPO="${{ inputs.iso_profiles_repo }}"
+        # get_distroname_isoprofiles() {
+        #   # Extraindo a organização
+        #   if [[ $ISO_PROFILES_REPO ==  'https://gitlab.manjaro.org/profiles-and-settings/iso-profiles.git' ]]; then
+        #     DISTRONAME_ISOPROFILES="${{ inputs.distroname }}"
+        #   else
+        #     if [[ $ISO_PROFILES_REPO =~ https?://[^/]+/([^/]+)/.* ]]; then
+        #       DISTRONAME_ISOPROFILES="${BASH_REMATCH[1]}"
+        #     else
+        #       DISTRONAME_ISOPROFILES="${{ inputs.distroname }}"
+        #     fi
+        #   fi
+        #   echo "$DISTRONAME_ISOPROFILES"
+        # }
+        # DISTRONAME_ISOPROFILES="$(get_distroname_isoprofiles)"
 
         {
           echo "USERNAME=builduser"
