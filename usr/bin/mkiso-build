@@ -907,11 +907,11 @@ configure_repositories_and_build_environment() {
 	
 	msg 'Configurando compressão'
 	if [[ "$BIGCOMMUNITY_BRANCH" != "stable" ]]; then
-		msg_info "sudo sed -i 's/-Xcompression-level 22/-Xcompression-level 7/g' /usr/lib/manjaro-tools/util-iso.sh"
-		sudo sed -i 's/-Xcompression-level 22/-Xcompression-level 7/g' /usr/lib/manjaro-tools/util-iso.sh
+		msg_info "sudo sed -i 's/-Xcompression-level 20/-Xcompression-level 7/g' /usr/lib/manjaro-tools/util-iso.sh"
+		sudo sed -i 's/-Xcompression-level 20/-Xcompression-level 7/g' /usr/lib/manjaro-tools/util-iso.sh
 	else 
-		msg_info "sudo sed -i 's/-Xcompression-level 7/-Xcompression-level 22/g' /usr/lib/manjaro-tools/util-iso.sh"
-		sudo sed -i 's/-Xcompression-level 7/-Xcompression-level 22/g' /usr/lib/manjaro-tools/util-iso.sh
+		msg_info "sudo sed -i 's/-Xcompression-level 20/-Xcompression-level 22/g' /usr/lib/manjaro-tools/util-iso.sh"
+		sudo sed -i 's/-Xcompression-level 20/-Xcompression-level 22/g' /usr/lib/manjaro-tools/util-iso.sh
 	fi
 	msg_info "sudo sed -i 's/256K/1024K/g' /usr/lib/manjaro-tools/util-iso.sh"
 	sudo sed -i 's/256K/1024K/g' /usr/lib/manjaro-tools/util-iso.sh
