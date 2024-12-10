@@ -906,15 +906,19 @@ configure_repositories_and_build_environment() {
 	sudo sed -i 's/path=\$1\/var\/lib\/pacman\/sync/path=\$1\/usr\/share\/man/g' /usr/lib/manjaro-tools/util-iso-image.sh
 	
 	msg 'Configurando compressão'
-	if [[ "$BIGCOMMUNITY_BRANCH" != "stable" ]]; then
-		msg_info "sudo sed -i 's/-Xcompression-level 20/-Xcompression-level 7/g' /usr/lib/manjaro-tools/util-iso.sh"
-		sudo sed -i 's/-Xcompression-level 20/-Xcompression-level 7/g' /usr/lib/manjaro-tools/util-iso.sh
-	else 
-		msg_info "sudo sed -i 's/-Xcompression-level 20/-Xcompression-level 22/g' /usr/lib/manjaro-tools/util-iso.sh"
-		sudo sed -i 's/-Xcompression-level 20/-Xcompression-level 22/g' /usr/lib/manjaro-tools/util-iso.sh
+	# Acessa dinamicamente a variável correspondente ao DISTRONAME_BRANCH
+	BRANCH_VAR="${DISTRONAME^^}_BRANCH" # Converte DISTRONAME para maiúsculas
+	BRANCH="${!BRANCH_VAR}"             # Expande o valor da variável com esse nome
+	if [[ "$BRANCH" == "stable" ]]; then
+		msg_info "sed -i 's/-Xcompression-level [0-9]\+/-Xcompression-level 22/g' /usr/lib/manjaro-tools/util-iso.sh"
+		sudo sed -i 's/-Xcompression-level [0-9]\+/-Xcompression-level 22/g' /usr/lib/manjaro-tools/util-iso.sh
+	else
+		msg_info "sed -i 's/-Xcompression-level [0-9]\+/-Xcompression-level 7/g' /usr/lib/manjaro-tools/util-iso.sh"
+		sudo sed -i 's/-Xcompression-level [0-9]\+/-Xcompression-level 7/g' /usr/lib/manjaro-tools/util-iso.sh
 	fi
 	msg_info "sudo sed -i 's/256K/1024K/g' /usr/lib/manjaro-tools/util-iso.sh"
 	sudo sed -i 's/256K/1024K/g' /usr/lib/manjaro-tools/util-iso.sh
+
 
 	if $DEBUG; then
 		replicate "#"
