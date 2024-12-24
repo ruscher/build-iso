@@ -47,6 +47,7 @@ configure_vars() {
 	declare -aG chililinux_edition=(base cinnamon cosmic deepin gnome i3 kde xfce wmaker)
 	declare -aG manjaro_edition=(architect bladebook gnome gnome-next grub i3 kde kde-dev netinstall nxd xfce)
 	declare -aG talesam_edition=(cinnamon cosmic deepin gnome kde xfce wmaker)
+	declare -aG ruscher_edition=(cinnamon cosmic deepin gnome kde xfce wmaker)
 	declare -aG vcatafesta_edition=(base cinnamon cosmic deepin gnome kde xfce wmaker)
 	declare -aG aDistros=('bigcommunity' 'biglinux' 'chililinux' 'manjaro' 'Sair')
 	declare -aG aBranchs=('stable' 'testing' 'unstable' 'Sair')
@@ -68,6 +69,7 @@ configure_vars() {
 	declare -aG chililinux_build_list=(chililinux)
 	declare -aG manjaro_build_list=(community manjaro oem)
 	declare -aG talesam_build_list=(bigcommunity)
+	declare -aG ruscher_build_list=(bigcommunity)
 	declare -aG vcatafesta_build_list=(chililinux)
 	#
 	declare -g IS_GIT_REPO=false
@@ -114,7 +116,7 @@ configure_vars() {
 		get_bigcommunity_branch
 	fi
 
-	if [[ "$DISTRONAME" =~ ^(manjaro|biglinux|bigcommunity|talesam)$ ]]; then
+	if [[ "$DISTRONAME" =~ ^(manjaro|biglinux|bigcommunity|talesam|ruscher)$ ]]; then
 		CHILILINUX_BRANCH=
 	else
 		get_chililinux_branch
@@ -665,17 +667,15 @@ check_directories_and_path() {
 
 	# Verificando o diretório do perfil específico
 	if [[ ! -d "$PROFILE_PATH_EDITION" ]]; then
-		#msg_info "ERRO($LINENO): perfil $PROFILE_PATH_EDITION não encontrado!"
-		#exit 1
-		die "${red}" "ERRO($LINENO): perfil $PROFILE_PATH_EDITION não encontrado!"
-	fi
-	if $DEBUG; then
-		replicate "#"
-		msg_info "contéudo path: $PROFILE_PATH_EDITION"
-		ls -la "$PROFILE_PATH_EDITION"
-		replicate "#"
-		msg_info "Caminho completo do perfil: $PROFILE_PATH_EDITION"
-	fi
+		read -p "ERRO($LINENO): Perfil '$PROFILE_PATH_EDITION' não encontrado. Deseja criar o diretório? (s/n): " answer
+		if [[ "$answer" =~ ^[sS]$ ]]; then
+			mkdir -p "$PROFILE_PATH_EDITION"
+			echo "Diretório '$PROFILE_PATH_EDITION' criado com sucesso."
+		else
+			die "${red}" "ERRO($LINENO): Perfil '$PROFILE_PATH_EDITION' não encontrado!"
+		fi
+	fi	#msg_info "ERRO($LINENO): perfil $PROFILE_PATH_EDITION não encontrado!"
+
 }
 export -f check_directories_and_path
 
@@ -1479,15 +1479,18 @@ build_iso() {
 
 	LC_ALL=C sudo -u "$USERNAME" bash -c "buildiso -q -v"
 	if $DEBUG; then
-		LC_ALL=C sudo -u "$USERNAME" bash -c "buildiso -d zstd ${SCOPE:+-f} -p $EDITION -b $MANJARO_BRANCH -k linux${KERNEL_NAME} ${OFFICE:+-o};exit \$?"
+		LC_ALL=C sudo -u "$USERNAME" bash -c "buildiso -d zstd ${SCOPE:+-f} -p $EDITION -b $MANJARO_BRANCH -k linux${KERNEL_NAME} --debug ${OFFICE:+-o};exit \$?"
 	else
-		LC_ALL=C sudo -u "$USERNAME" bash -c "buildiso -d zstd ${SCOPE:+-f} -p $EDITION -b $MANJARO_BRANCH -k linux${KERNEL_NAME} ${OFFICE:+-o} > /dev/null 2>&1; exit \$?"
+		LC_ALL=C sudo -u "$USERNAME" bash -c "buildiso -d zstd ${SCOPE:+-f} -p $EDITION -b $MANJARO_BRANCH -k linux${KERNEL_NAME} --debug ${OFFICE:+-o} > /dev/null 2>&1; exit \$"
 	fi
 	BUILD_EXIT_CODE=$?
 
 	msg 'Testando se buildiso falhou, e caso sair com o código de erro'
 	if [[ $BUILD_EXIT_CODE -ne 0 ]]; then
 		msg_warning "ERROR: buildiso command failed with exit code $BUILD_EXIT_CODE"
+		msg_warning "ERRO: buildiso falhou com código de saída $BUILD_EXIT_CODE"
+		msg_warning "Debugando..."
+		ls -la "$PROFILE_PATH_EDITION"
 		exit $BUILD_EXIT_CODE
 	fi
 	msg_info "buildiso command exit code $BUILD_EXIT_CODE"
@@ -1504,40 +1507,83 @@ build_iso() {
 	#	fi
 
 	if $DEBUG; then
-		msg 'Exibir conteúdo de diretórios relevantes para diagnóstico'
-		replicate '#'
-		msg_info "Contents of /var/lib/manjaro-tools/buildiso/${EDITION}/x86_64/rootfs/boot:"
-		ls -la /var/lib/manjaro-tools/buildiso/"${EDITION}"/x86_64/rootfs/boot
-		replicate '#'
-		msg_info "Contents of /var/lib/manjaro-tools/buildiso/${EDITION}/iso/boot:"
-		ls -la /var/lib/manjaro-tools/buildiso/"${EDITION}"/iso/boot
-		replicate '#'
-	fi
+    msg 'Exibir conteúdo de diretórios relevantes para diagnóstico'
+    replicate '#'
+
+    # Verificar existência do diretório rootfs/boot
+    if [[ -d "/var/lib/manjaro-tools/buildiso/${EDITION}/x86_64/rootfs/boot" ]]; then
+        msg_info "Contents of /var/lib/manjaro-tools/buildiso/${EDITION}/x86_64/rootfs/boot:"
+        ls -la /var/lib/manjaro-tools/buildiso/"${EDITION}"/x86_64/rootfs/boot
+    else
+        msg_warning "Diretório /var/lib/manjaro-tools/buildiso/${EDITION}/x86_64/rootfs/boot não encontrado."
+    fi
+    replicate '#'
+
+    # Verificar existência do diretório iso/boot
+    if [[ -d "/var/lib/manjaro-tools/buildiso/${EDITION}/iso/boot" ]]; then
+        msg_info "Contents of /var/lib/manjaro-tools/buildiso/${EDITION}/iso/boot:"
+        ls -la /var/lib/manjaro-tools/buildiso/"${EDITION}"/iso/boot
+    else
+        msg_warning "Diretório /var/lib/manjaro-tools/buildiso/${EDITION}/iso/boot não encontrado."
+    fi
+    replicate '#'
+fi
+
 }
 export -f build_iso
 
 cleanup_and_move_files() {
-	OUTPUT_ISO_PATH_NAME=$(find "$VAR_CACHE_MANJARO_TOOLS_ISO" -type f -name "*.iso" -exec stat -c '%Y %n' {} + | sort -nr | awk 'NR==1 {print $2}')
-	FILE_PKG=$(find "$VAR_CACHE_MANJARO_TOOLS_ISO" -type f -name "*-pkgs.txt" -exec stat -c '%Y %n' {} + | sort -nr | awk 'NR==1 {print $2}')
-	{
-		echo "ISO_BASENAME=$ISO_BASENAME"
-		echo "OUTPUT_ISO_PATH_NAME=$OUTPUT_ISO_PATH_NAME"
-		echo "FILE_PKG=$FILE_PKG"
-	} >>"$GITHUB_ENV"
-	echo "iso_path=$WORK_PATH/$ISO_BASENAME" >>"$GITHUB_OUTPUT"
+    USER=$(whoami)
+    OUTPUT_ISO_PATH_NAME=$(find "$VAR_CACHE_MANJARO_TOOLS_ISO" -type f -name "*.iso" -exec stat -c '%Y %n' {} + | sort -nr | awk 'NR==1 {print $2}')
+    FILE_PKG=$(find "$VAR_CACHE_MANJARO_TOOLS_ISO" -type f -name "*-pkgs.txt" -exec stat -c '%Y %n' {} + | sort -nr | awk 'NR==1 {print $2}')
 
-	msg "Movendo ISO e PKGS para $WORK_PATH"
-	sudo mv -f "$OUTPUT_ISO_PATH_NAME" "$WORK_PATH/$ISO_BASENAME" || msg_warning "ERRO: Falha ao mover ISO $OUTPUT_ISO_PATH_NAME"
-	sudo mv -f "$FILE_PKG" "$WORK_PATH/${ISO_BASENAME}.pkgs" || msg_warning "ERRO: Falha ao mover PKGS $FILE_PKG"
+    # Verificar se as variáveis foram atribuídas corretamente
+    if [[ -z "$OUTPUT_ISO_PATH_NAME" || ! -f "$OUTPUT_ISO_PATH_NAME" ]]; then
+        msg_warning "ERRO: Arquivo ISO não encontrado no cache."
+        return 1
+    fi
 
-	replicate '#'
-	msg_info "OUTPUT_ISO_PATH_NAME: $OUTPUT_ISO_PATH_NAME"
-	msg_info "FILE_PKG            : $FILE_PKG"
-	msg_info "ISO_BASENAME        : $ISO_BASENAME"
-	msg_info "NEW PATH ISO FILE   : $WORK_PATH/$ISO_BASENAME"
-	msg_info "NEW PATH ISO PKGS   : $WORK_PATH/${ISO_BASENAME}.pkgs"
-	replicate '#'
+    if [[ -z "$FILE_PKG" || ! -f "$FILE_PKG" ]]; then
+        msg_warning "ERRO: Arquivo de pacotes não encontrado no cache."
+        return 1
+    fi
+
+    if [[ -z "$WORK_PATH" || ! -d "$WORK_PATH" ]]; then
+        msg_warning "ERRO: Diretório de destino $WORK_PATH não existe ou não foi definido."
+        return 1
+    fi
+
+    # Verificar permissões no diretório de destino
+    if [[ ! -w "$WORK_PATH" ]]; then
+        msg "Configurando permissões no diretório de destino..."
+        sudo chown -R "$USER":"$USER" "$WORK_PATH"
+        sudo chmod -R 755 "$WORK_PATH"
+    fi
+
+    # Move os arquivos
+    msg "Movendo ISO e PKGS para $WORK_PATH"
+    if ! sudo mv -f "$OUTPUT_ISO_PATH_NAME" "$WORK_PATH/$ISO_BASENAME"; then
+        msg_warning "ERRO: Falha ao mover ISO $OUTPUT_ISO_PATH_NAME para $WORK_PATH/$ISO_BASENAME"
+        return 1
+    fi
+
+    if ! sudo mv -f "$FILE_PKG" "$WORK_PATH/${ISO_BASENAME}.pkgs"; then
+        msg_warning "ERRO: Falha ao mover PKGS $FILE_PKG para $WORK_PATH/${ISO_BASENAME}.pkgs"
+        return 1
+    fi
+
+    # Exibe informações sobre os arquivos movidos
+    replicate '#'
+    msg_info "OUTPUT_ISO_PATH_NAME: $OUTPUT_ISO_PATH_NAME"
+    msg_info "FILE_PKG            : $FILE_PKG"
+    msg_info "ISO_BASENAME        : $ISO_BASENAME"
+    msg_info "NEW PATH ISO FILE   : $WORK_PATH/$ISO_BASENAME"
+    msg_info "NEW PATH ISO PKGS   : $WORK_PATH/${ISO_BASENAME}.pkgs"
+    replicate '#'
 }
+
+
+
 export -f cleanup_and_move_files
 
 sh_install_manjaro_build_packages() {
