@@ -58,6 +58,7 @@ configure_vars() {
 		'https://github.com/chililinux/manjaro-iso-profiles'
 		'https://gitlab.manjaro.org/profiles-and-settings/iso-profiles.git'
 		'https://github.com/talesam/iso-profiles'
+		'https://github.com/ruscher/iso-profiles'
 		'https://github.com/vcatafesta/iso-profiles'
 		'Sair'
 	)
